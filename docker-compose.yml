@@ -1,0 +1,83 @@
+services:
+  ## ─────────────────────────────  Next.js front-end  ──────────────────────────
+  web:
+    image: node:20-alpine
+    working_dir: /workspace
+    command: |
+      sh -c "
+        corepack enable                         # Activer pnpm
+        cd /workspace                           # Se positionner à la racine du monorepo
+        pnpm install                            # Installer toutes les dépendances du monorepo
+        pnpm --filter=web dev                   # Lancer uniquement l'app web en mode dev
+      "
+    volumes:
+      # Monter tout le monorepo pour accéder aux packages partagés
+      - .:/workspace
+      # Cache pour node_modules
+      - node_modules:/workspace/node_modules
+      - web_node_modules:/workspace/apps/web/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:4000
+    depends_on:
+      - api
+
+  ## ──────────────────────────────  Nest.js back-end  ──────────────────────────
+  api:
+    image: node:20-alpine
+    working_dir: /workspace
+    command: |
+      sh -c "
+        corepack enable
+        cd /workspace
+        pnpm install
+        pnpm run db:generate                    # Générer les types Prisma
+        pnpm --filter=api dev                   # Lancer uniquement l'API en mode dev
+      "
+    ports:
+      - "4000:3000"
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/node_modules
+      - api_node_modules:/workspace/apps/api/node_modules
+    environment:
+      - PORT=3000
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/myapp
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ## ─────────────────────────────────  PostgreSQL  ────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: myapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ## ─────────────────────────────────  PgAdmin (Optionnel)  ────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: adminpassword
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+volumes:
+  node_modules:
+  web_node_modules:
+  api_node_modules:
+  postgres_data:
